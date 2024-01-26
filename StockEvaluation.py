@@ -1,5 +1,4 @@
 import warnings
-
 import numpy as np
 import pandas as pd
 import yfinance as yf
@@ -19,21 +18,23 @@ class DCF:
     self.balanceSheet = pd.DataFrame()
     self.cashFlow = pd.DataFrame()
     self.overview = pd.DataFrame()
+    self.yearsArr = np.array([])
     self.marketRiskPremium = 0.05
     self.terminalGrowthRate = 0.02
     self.beta = 0.0
+    self.evebitda = 0.0
     self.initialGrowthRate = 0.0
     self.riskFreeRate = 0.0
 
   # call this something differnt but only CALL it ONCE
   def retrieveIS(self):
     alphaIncomeStatement = self.fd.get_income_statement_annual(self.stock)
-    self.incomeStatement = pd.DataFrame(alphaIncomeStatement[0]).T
+    self.incomeStatement = alphaIncomeStatement[0][:5].T.replace('None', 0)
 
   def retrieveBS(self):
     alphaBalanceSheet = self.fd.get_balance_sheet_annual(self.stock)
-    self.balanceSheet = pd.DataFrame(alphaBalanceSheet[0]).T
-  
+    self.balanceSheet = alphaBalanceSheet[0][:5].T.replace('None', 0)
+
   def getIncomeStatement(self):
     if self.incomeStatement.empty:
       self.retrieveIS()
@@ -46,29 +47,31 @@ class DCF:
 
   def retrieveCF(self):
     alphaCashFlow = self.fd.get_cash_flow_annual(self.stock)
-    self.cashFlow = pd.DataFrame(alphaCashFlow[0]).T
-  
+    self.cashFlow = alphaCashFlow[0][:5].T.replace('None', 0)
+
   def getCashFlow(self):
     if self.cashFlow.empty:
       self.retrieveCF()
     return self.cashFlow
 
   def retrieveOverview(self):
-    alphaOverview = self.fd.get_company_overview(self.stock)
-    self.overview = pd.DataFrame(alphaOverview[0])
-  
+    ticker = yf.Ticker(self.stock)
+    self.overview = pd.DataFrame(ticker.info).iloc[0]
+
   def getOverview(self):
     if self.overview.empty:
       self.retrieveOverview()
     return self.overview
-  
+
   def getYears(self):
-    fiscalYear = []
-    for i in reversed(range(0,5)):
-        fiscalYear.append(int(self.getIncomeStatement().loc['fiscalDateEnding'][i][0:4]))
-    for i in range(4,9):
-        fiscalYear.append(fiscalYear[i]+1)
-    return np.array(fiscalYear)
+    if np.size(self.yearsArr) == 0:
+      fiscalYear = []
+      for i in reversed(range(0,5)):
+          fiscalYear.append(int(self.getIncomeStatement().loc['fiscalDateEnding'][i][0:4]))
+      for i in range(4,9):
+          fiscalYear.append(fiscalYear[i]+1)
+      self.yearsArr = np.array(fiscalYear)
+    return self.yearsArr
 
   def get5YearDataIS(self, stri):
     inc_stat = self.getIncomeStatement()
@@ -100,15 +103,15 @@ class DCF:
     if self.initialGrowthRate == 0.0:
       print("The average growth rate is: " + str(self.getAvg5YearGrowth(stri)))
       self.initialGrowthRate = float(input("Input initial year Growth Rate for " + self.stock + ": "))
-      
+
     arrGrowth = np.append(self.get5YearGrowth(stri), self.initialGrowthRate)
     multiplier = .9
     for i in range(6, 10):
       arrGrowth = np.append(arrGrowth, arrGrowth[i-1]*multiplier)
       multiplier *= 0.9
-      
+
     return arrGrowth
-  
+
   def projectRevenue(self):
     arrGrowth = self.tenYearGrowthRate('totalRevenue')
     arrRevenue = self.get5YearDataIS('totalRevenue')
@@ -132,7 +135,7 @@ class DCF:
     for i in range (0,10):
       arrPercent = np.append(arrPercent, nparr[i] / arrRevenue[i])
     return arrPercent
-  
+
   def projectExpense(self, stri):
     arrPercent = self.tenYearPercentOfRev(stri)
     revenue = self.projectRevenue()
@@ -140,7 +143,7 @@ class DCF:
     for i in range(5, 10):
       data = np.append(data,revenue[i] * arrPercent[i])
     return data
-  
+
   def projectCOGS(self):
     return self.projectExpense('costofGoodsAndServicesSold')
 
@@ -155,7 +158,7 @@ class DCF:
 
   def projectRD(self):
     return self.projectExpense('researchAndDevelopment')
-  
+
   def projectOperatingExpenses(self):
     return self.projectExpense('operatingExpenses')
 
@@ -163,7 +166,6 @@ class DCF:
   def projectEBIT(self):
     ebit = self.projectGrossProfit() - self.projectOperatingExpenses()
     return ebit
-    
   def projectNonOperatingExpenses(self):
     # First 5 years: -(Net Income - Operating Income)
     # THEN project percent of revenue of NonOperating Expenses
@@ -185,7 +187,7 @@ class DCF:
   def projectNetIncome(self):
     netIncome = self.projectGrossProfit() - self.projectOperatingExpenses() - self.projectNonOperatingExpenses()
     return netIncome
-  
+
   # RETRIEVE DATA FROM CASH FLOW STATEMENT
   def get5YearDataCF(self, stri):
     cashFlow = self.getCashFlow()
@@ -255,7 +257,7 @@ class DCF:
     fcf['Less: CapEX'] = (self.projectCapEx()[5:]/1000).astype(int)
     fcf['Less: Change in NWC'] = (self.projectChangeNWC()[5:]/1000).astype(int)
     fcf['FCFF'] = (self.projectFCFF()[5:]/1000).astype(int)
-    fcf['FCFF % Growth'] = np.char.mod('%.2f%%', self.projectFCFFPercentGrowth()[5:]*100)
+    fcf['FCFF % Growth'] = np.char.mod('%.2f', self.projectFCFFPercentGrowth()[5:]*100)
     fcf['Discount Period'] = np.char.mod('%.2f', self.projectDiscountPeriod()[5:])
     fcf['Discount Factor'] = np.char.mod('%.2f',self.projectDiscountFactor()[5:])
     fcf['PV of Cash Flows'] = (self.projectPVCashFlow()[5:]/1000).astype(int)
@@ -314,7 +316,7 @@ class DCF:
     wacc['Debt'] = int(self.getLongDebt()/1000)
     wacc['WACC'] = np.char.mod('%.2f%%', self.getWACC()*100)
     return wacc.T
-  
+
   # function getMarketRiskPremium
   def getMarketRiskPremium(self):
     return self.marketRiskPremium
@@ -325,17 +327,17 @@ class DCF:
     if self.riskFreeRate == 0.0:  
       ten_year = '^TNX'
       treasury_ticker = [ten_year]
-      treasury_history = yf.download(treasury_ticker, period = '1d', progress=False)
-      self.riskFreeRate = float(treasury_history['Adj Close'])/100
+      treasury_history = yf.download(treasury_ticker, period = '5d', progress=False)
+      self.riskFreeRate = float(treasury_history['Adj Close'].iloc[-1])/100
     return self.riskFreeRate
 
   # function calculate Beta or get Input
   def calcBeta(self):
-    beta = float(self.getOverview().iloc[0].at['Beta'])
+    beta = float(self.getOverview()['beta'])
     print("Current Beta is: " + str(beta))
     beta = float(input("Insert Beta value for DCF: "))
     self.beta = beta
-  
+
   # function getBeta
   def getBeta(self):
     if self.beta == 0.0:
@@ -371,7 +373,7 @@ class DCF:
 
   # retrieves shares oustanding
   def getSharesOustanding(self):
-    shares = int(self.getOverview()['SharesOutstanding'].iloc[0])
+    shares = int(self.getOverview()['sharesOutstanding'])
     return shares
 
   # calculates current equity value
@@ -384,7 +386,7 @@ class DCF:
     balanceSheet = self.getBalanceSheet()
     longDebt = np.array(balanceSheet.iloc[:, ::-1].loc['longTermDebt']).astype('int64')
     return longDebt[4]
-    
+
   # calculates WACC
   def getWACC(self):
     wacc = self.getAfterTaxCostOfDebt() * (self.getLongDebt() / (self.getLongDebt()+self.getCurrentEquityValue())) + self.getCostOfEquity() * (self.getCurrentEquityValue() / (self.getLongDebt()+self.getCurrentEquityValue()))
@@ -395,15 +397,12 @@ class DCF:
   def get5YearBS(self, stri):
     bal_sheet = self.getBalanceSheet()
     return np.array(bal_sheet.iloc[:, ::-1].loc[stri])
-  
+
   def get5YearAR(self):
     return self.get5YearBS('currentNetReceivables').astype('int64')
 
   def get5YearInv(self):
     arrInventory = self.get5YearBS('inventory')
-    for i in range(0,5):
-      if (arrInventory[i] == 'None'):
-        arrInventory[i] = 0
     return arrInventory.astype('int64')
 
   def get5YearAP(self):
@@ -416,7 +415,7 @@ class DCF:
     for _i in range(5,10):
       fiveYearDSO = np.append(fiveYearDSO, avgDSO)
     return fiveYearDSO
-  
+
   def projectDIO(self):
     fiveYearDIO = (self.get5YearInv() / self.get5YearDataIS('costofGoodsAndServicesSold'))*365.0
     avgDIO = fiveYearDIO.mean()
@@ -431,7 +430,7 @@ class DCF:
     for _i in range(0, 5):
       fiveYearDPO = np.append(fiveYearDPO, avgDPO)
     return fiveYearDPO
-  
+
   def projectAR(self):
     tenYearDSO = self.projectDSO()
     revenue = self.projectRevenue()
@@ -455,12 +454,9 @@ class DCF:
     for i in range(5,10):
       accountsPayable = np.append(accountsPayable, tenYearDPO[i]/365*cogs[i])
     return accountsPayable
-  
+
   def get5YearOtherAssets(self):
     otherAssets = self.get5YearBS('otherCurrentAssets')
-    for i in range(0,5):
-      if (otherAssets[i] == 'None'):
-        otherAssets[i] = 0
     return otherAssets.astype('int64')
 
   def projectPercentOfSGA(self):
@@ -471,7 +467,7 @@ class DCF:
     for _i in range(0,5):
       percentOfSGA = np.append(percentOfSGA, avgPercentOfSGA)
     return percentOfSGA
-  
+
   def projectOtherAssets(self):
     otherAssets = self.get5YearOtherAssets()
     percentOfSGA = self.projectPercentOfSGA()
@@ -482,7 +478,7 @@ class DCF:
 
   def get5YearAL(self):
     return self.get5YearBS('totalCurrentLiabilities').astype('int64')
-  
+
   def projectPercentOfRevenueAL(self):
     fiveYearAL = (self.get5YearAL() / self.get5YearDataIS('totalRevenue'))
     avgFiveYearAL = fiveYearAL.mean()
@@ -531,7 +527,7 @@ class DCF:
     for i in range(5, 10):
       capEx = np.append(capEx, capExPercentOfRev[i]*totalRevenue[i])
     return capEx
-  
+
   def get5YearDepAmort(self):
     return self.get5YearDataCF('depreciationDepletionAndAmortization').astype('int64')
 
@@ -645,9 +641,16 @@ class DCF:
     terminalEBITDA = ebit[-1] + depAmort[-1]
     return terminalEBITDA
 
+  def calcEVEBITDAMultiple(self):
+    evebitda = float(self.getOverview()['enterpriseToEbitda'])
+    print("Current EV/EBITDA Multiple is: " + str(evebitda))
+    evebitda = float(input("Insert EV/EBITDA value for DCF: "))
+    self.evebitda = evebitda
+
   def getEVEBITDAMultiple(self):
-    multiple = float(self.getOverview()['EVToEBITDA'][0])
-    return multiple
+    if self.evebitda == 0.0:
+      self.calcEVEBITDAMultiple()
+    return self.evebitda
 
   def getTerminalValueMM(self):
     terminalEBITDA = self.getTerminalEBITDA()
@@ -679,6 +682,9 @@ class DCF:
 
 stock = input("Insert a stock Ticker: ")
 dcf = DCF(stock, '01IN1MCJXO7P7AVK')
+#2XQGIZJ4GO9E8A60
+#K0FGF8K2SAV8NSHT
+#paid 01IN1MCJXO7P7AVK
 rev = dcf.createRevenueDF()
 cfa = dcf.createCFA()
 nwc = dcf.createNWC()
@@ -699,6 +705,7 @@ print()
 print(gord)
 print()
 print(mult)
+
 
 # Note: find a way to BOLD certain rows in the DataFrames
 # Note: add way to add user input for EV/EBITDA multiple value
