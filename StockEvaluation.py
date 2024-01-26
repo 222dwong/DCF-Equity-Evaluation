@@ -681,7 +681,7 @@ class DCF:
     return 1.0*self.getEquityValueMM()/self.getSharesOustanding()
 
 stock = input("Insert a stock Ticker: ")
-dcf = DCF(stock, '01IN1MCJXO7P7AVK')
+dcf = DCF(stock, '7L5FSOHGNSR3M4YL')
 #2XQGIZJ4GO9E8A60
 #K0FGF8K2SAV8NSHT
 #paid 01IN1MCJXO7P7AVK
